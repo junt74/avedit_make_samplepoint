@@ -40,8 +40,14 @@ samples/*.wav
 samples/*.wave
 *_lp.wav
 *_lp_22.wav
+*_lp_score*.wav
+*_lp_22_score*.wav
+*_score*.wav
 *_lp.wave
 *_lp_22.wave
+*_lp_score*.wave
+*_lp_22_score*.wave
+*_score*.wave
 
 # Keep sample documentation tracked
 !samples/readme.md

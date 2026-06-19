@@ -190,6 +190,30 @@ def refine_loop_end(
     return best_pos
 
 
+def crossfade_loop_end(
+    audio: np.ndarray,
+    loop_start: int,
+    loop_end: int,
+    window: int,
+) -> tuple[np.ndarray, int]:
+    """
+    Crossfade the loop end into the loop start over up to window samples.
+    """
+    fade_length = min(window, loop_end - loop_start, loop_end)
+    if fade_length <= 1:
+        raise ValueError("Not enough loop length to apply crossfade.")
+
+    result = audio.copy()
+    tail_start = loop_end - fade_length
+
+    tail = result[tail_start:loop_end].copy()
+    head = result[loop_start : loop_start + fade_length].copy()
+    fade = np.linspace(0.0, 1.0, fade_length, dtype=np.float32)
+
+    result[tail_start:loop_end] = tail * (1.0 - fade) + head * fade
+    return result, fade_length
+
+
 def resample_linear(
     audio: np.ndarray,
     source_sample_rate: int,
@@ -533,6 +557,13 @@ def default_output_path(input_path: Path, mode_22: bool) -> Path:
     return input_path.with_name(f"{input_path.stem}{suffix}{input_path.suffix}")
 
 
+def append_score_to_path(path: Path, score: float) -> Path:
+    """
+    Add the similarity score to an output file name.
+    """
+    return path.with_name(f"{path.stem}_score{score:.4f}{path.suffix}")
+
+
 def main() -> None:
     if len(sys.argv) == 1:
         print(
@@ -634,7 +665,11 @@ For full help:
         "--threshold",
         type=float,
         default=0.85,
-        help="Minimum normalized similarity score. Default: 0.85",
+        help=(
+            "Minimum score to save without crossfade. "
+            "Lower scores are crossfaded and saved with the score in the file name. "
+            "Default: 0.85"
+        ),
     )
 
     parser.add_argument(
@@ -716,13 +751,9 @@ For full help:
         search_end=search_end,
     )
 
-    if score < args.threshold:
-        raise RuntimeError(
-            f"No good loop point found. "
-            f"Best score was {score:.4f}, below threshold {args.threshold:.4f}. "
-            f"Try lowering --threshold, increasing --window, changing --start, "
-            f"or reducing --min-gap."
-        )
+    use_crossfade = score < args.threshold
+    if use_crossfade:
+        output_path = append_score_to_path(output_path, score)
 
     loop_end = refine_loop_end(
         x=audio,
@@ -734,6 +765,15 @@ For full help:
 
     crop_end = min(len(audio), loop_end + args.crop_margin)
     cropped = audio[:crop_end]
+    crossfade_length = 0
+
+    if use_crossfade:
+        cropped, crossfade_length = crossfade_loop_end(
+            audio=cropped,
+            loop_start=loop_start,
+            loop_end=loop_end,
+            window=args.window,
+        )
 
     write_wav_with_smpl_loop(
         path=output_path,
@@ -758,6 +798,10 @@ For full help:
     print("Final loop end:", loop_end)
     print("Loop length:", loop_end - loop_start)
     print("Rough similarity score:", f"{score:.4f}")
+    print("Threshold:", f"{args.threshold:.4f}")
+    print("Crossfade applied:", "yes" if use_crossfade else "no")
+    if use_crossfade:
+        print("Crossfade length:", crossfade_length)
 
 
 if __name__ == "__main__":
